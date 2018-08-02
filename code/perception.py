@@ -5,17 +5,38 @@ import cv2
 # Threshold of RGB > 160 does a nice job of identifying ground pixels only
 def color_thresh(img, rgb_thresh=(160, 160, 160)):
     # Create an array of zeros same xy size as img, but single channel
-    color_select = np.zeros_like(img[:,:,0])
+    color_select_ground = np.zeros_like(img[:,:,0])
+    color_select_obstacles = np.zeros_like(img[:,:,0])
+    color_select_yellow = np.zeros_like(img[:,:,0])
     # Require that each pixel be above all three threshold values in RGB
     # above_thresh will now contain a boolean array with "True"
     # where threshold was met
     above_thresh = (img[:,:,0] > rgb_thresh[0]) \
                 & (img[:,:,1] > rgb_thresh[1]) \
                 & (img[:,:,2] > rgb_thresh[2])
+            
+    below_thresh = (img[:,:,0] <= rgb_thresh[0]) \
+                & (img[:,:,1] <= rgb_thresh[1]) \
+                & (img[:,:,2] <= rgb_thresh[2])
     # Index the array of zeros with the boolean array and set to 1
-    color_select[above_thresh] = 1
-    # Return the binary image
-    return color_select
+    color_select_ground[above_thresh] = 1
+    color_select_obstacles[below_thresh] = 1
+    
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    # define range of yellow color in HSV
+    yellow = np.uint8([[[255,255,0 ]]])
+    hsv_yellow = cv2.cvtColor(yellow,cv2.COLOR_BGR2HSV)
+    lower_yellow = np.array([80,100,100])
+    upper_yellow = np.array([100,255,255])
+    
+    mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    res = cv2.bitwise_and(img,img, mask= mask)
+    
+    yellow_tresh = (res[:,:,0] > 0) \
+                & (res[:,:,1] > 0) \
+                & (res[:,:,2] > 0)
+    color_select_yellow[yellow_tresh] = 1
+    return color_select_ground, color_select_obstacles, color_select_yellow
 
 # Define a function to convert from image coords to rover coords
 def rover_coords(binary_img):
@@ -84,8 +105,18 @@ def perception_step(Rover):
     # TODO: 
     # NOTE: camera image is coming to you in Rover.img
     # 1) Define source and destination points for perspective transform
+	dst_size = 5 
+    bottom_offset = 6
+    source = np.float32([[14, 140], [301 ,140],[200, 96], [118, 96]])
+    destination = np.float32([[image.shape[1]/2 - dst_size, image.shape[0] - bottom_offset],
+                  [image.shape[1]/2 + dst_size, image.shape[0] - bottom_offset],
+                  [image.shape[1]/2 + dst_size, image.shape[0] - 2*dst_size - bottom_offset], 
+                  [image.shape[1]/2 - dst_size, image.shape[0] - 2*dst_size - bottom_offset],
+                  ])
     # 2) Apply perspective transform
+	warped = perspect_transform(img, source, destination)
     # 3) Apply color threshold to identify navigable terrain/obstacles/rock samples
+	nav_terrain, obstacles, rocks  = color_thresh(warped) 
     # 4) Update Rover.vision_image (this will be displayed on left side of screen)
         # Example: Rover.vision_image[:,:,0] = obstacle color-thresholded binary image
         #          Rover.vision_image[:,:,1] = rock_sample color-thresholded binary image
